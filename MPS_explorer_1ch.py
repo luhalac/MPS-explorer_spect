@@ -7,7 +7,7 @@ Created on Tue Aug 24 16:03:00 2021
 GUI for MPS x,y,z data exploration and quick analysis
 
 conda command for converting QtDesigner file to .py:
-pyuic5 -x data_explorer.ui -o data_explorer.py
+pyuic5 -x data_explorer_1ch.ui -o data_explorer_1ch.py
     
 """
 
@@ -38,6 +38,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QMainWindow, QApplication
 import data_explorer_1ch
+
 
 
 
@@ -396,26 +397,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Export array to CSV file (using 2 decimal places)
         np.savetxt(dataNamecsv, xyzROI, delimiter=",", fmt="%.2f", header="x, y, z", comments="")
         
-        
-    
-    def savedistdata(self):
-        
-        Nneighbor = int(self.Nneighbor)
 
-        dist = self.distances
-        
-        filename = self.ui.lineEdit_filename.text()
-        filename = os.path.splitext(filename)[0]
-        dataNamecsv = utils.insertSuffix(filename, '_' + str(Nneighbor) + 'neighbor_distdata.csv')
-        
-        #export dist array to CSV file (using 2 decimal places)
-        np.savetxt(dataNamecsv, dist, delimiter=",", fmt="%.2f")
      
     def DBCV_DBSCAN(self,X):
         
         param_grid = {
-            'eps': np.arange(10,40,5), 
-            'min_samples': np.arange(5,10,1)
+            'eps': np.arange(20,50,5), 
+            'min_samples': np.arange(10,20,1)
         }
        
         best_index = -1
@@ -466,24 +454,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         eps = int(best_eps)
         min_samples  = int(best_min_samples)
         
-        print("best min samples is " + str(min_samples))
-        print("best eps is " + str(eps))
-        print("best in is" + str(best_ind))
-
-
-        # # DBSCAN parameters
-        # self.minsamples = float(self.ui.lineEdit_minsamples.text())
-        # min_samples = int(self.minsamples)
+        # display best eps and min points
         
-        # self.eps = float(self.ui.lineEdit_eps.text())
-        # eps = int(self.eps)
-        
-        # DBSCAN clustering
-        db = DBSCAN(eps=eps, min_samples=min_samples).fit(XY) 
-        dblabels = db.labels_
+        self.ui.lineEdit_minsamples.setText(str(min_samples))
+        self.ui.lineEdit_eps.setText(str(eps))
         
         # Get unique cluster labels
-        unique_labels = np.unique(dblabels)
+        unique_labels = np.unique(best_labels)      
         
         # Plot clusters
         scatterWidgetcluster = pg.GraphicsLayoutWidget()
@@ -494,33 +471,58 @@ class MPS_explorer(QtWidgets.QMainWindow):
         
         for label in unique_labels:
             if label == -1:
-                # Skip noise points
-                continue
-            
-            # Get points belonging to the current cluster label
-            cluster_points = XY[dblabels == label]
-            
-            # Plot cluster points
-            cluster_plot = pg.ScatterPlotItem(cluster_points[:, 0], cluster_points[:, 1], 
-                                               pen=pench, brush=pg.mkBrush(None), size=10)
-            plotclusters.addItem(cluster_plot)
+                 # Skip noise points
+                 continue
+
+            else:
+                cluster = XY[best_labels == label]
+                cm_list = [] 
+                for i in range(np.max(best_labels)+1):
+                    
+                    idx = np.where(best_labels==i)
+                    x_i = XY[:, 0][idx]
+                    y_i = XY[:, 1][idx]
+                    cm_list.append(np.array([np.mean(x_i),np.mean(y_i)]))
+                    
+        # Filter clusters with validity index
         
-        # Plot cluster centers
-        cm_list = []
-        for label in unique_labels:
-            if label == -1:
-                continue
-            cluster_points = XY[dblabels == label]
-            cm_list.append(np.mean(cluster_points, axis=0))
+        quality_threshold = 0  # Adjust this threshold according to your needs
+
+        # Filter cluster centers based on quality index
+        filtered_centers = []
+        filtered_indices = []
+        for i, index in enumerate(best_per_cluster_validity_index):
+            if index > quality_threshold:
+                
+                filtered_centers.append(cm_list[i])
+                filtered_indices.append(index)
+        
+        filtered_centers = np.array(filtered_centers)
+        filtered_indices = np.array(filtered_indices)
+        
+        print(filtered_indices)
+
+        
+        
+        # Plot cluster points
+        cluster_plot = pg.ScatterPlotItem(cluster[:, 0], cluster[:, 1], 
+                                        pen=pench, brush=pg.mkBrush(None), size=10)
+        plotclusters.addItem(cluster_plot)
+
+        
         
         cms = np.array(cm_list)
         self.cms = np.around(cms, decimals=2)
+        best_cms = np.array(filtered_centers)
+        self.best_cms = np.around(best_cms, decimals=2)
 
         
-        self.selectedcluscm = pg.ScatterPlotItem(self.cms[:, 0], self.cms[:, 1], size=10, pen=pg.mkPen('k'), brush=brushch)
+        self.selectedcluscm = pg.ScatterPlotItem(self.cms[:, 0], self.cms[:, 1], size=5, pen=pg.mkPen('k'), brush=brushch)
         plotclusters.addItem(self.selectedcluscm)
+        self.selectedclusbestcm = pg.ScatterPlotItem(self.best_cms[:, 0], self.best_cms[:, 1], size=10, pen=pg.mkPen('r'), brush=brushch)
+        plotclusters.addItem(self.selectedclusbestcm)
         self.gcms = []
-        self.selectedcluscm.sigClicked.connect(self.rx)
+        self.selectedclusbestcm.sigClicked.connect(self.rx)
         
         # Add the plot to the UI
         self.empty_layout(scatter_layout_cluster)
@@ -532,12 +534,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # badclus = (points[0].pos())
         badcluscoord = np.array((np.round(points[0].pos()[0], decimals = 2), np.round(points[0].pos()[1], decimals = 2)))
 
-        indbad_clus = np.where((self.cms[:,0] == badcluscoord[0]) & (self.cms[:,1] == badcluscoord[1]))
+        indbad_clus = np.where((self.best_cms[:,0] == badcluscoord[0]) & (self.best_cms[:,1] == badcluscoord[1]))
 
         self.indbc.append(indbad_clus)
         badind = np.unique(self.indbc)
         
-        self.good_cms = [elem for i, elem in enumerate(self.cms) if i not in badind]
+        self.good_cms = [elem for i, elem in enumerate(self.best_cms) if i not in badind]
         self.gcms = np.array(self.good_cms)
    
 
@@ -569,13 +571,31 @@ class MPS_explorer(QtWidgets.QMainWindow):
         clusCMxy = np.array([self.gcms[:,0],self.gcms[:,1]])
         clusCMxy = np.transpose(clusCMxy)
         
-        filename = self.ui.lineEdit_filename.text()
-        filename = os.path.splitext(filename)[0]
-        dataNamecsv = utils.insertSuffix(filename, '_clusCM_xy.csv')
+        # Get the filename from the UI
+        base_filename = self.ui.lineEdit_filename.text()
         
-        #export array to CSV file (using 2 decimal places)
-        np.savetxt(dataNamecsv, clusCMxy, delimiter=",", fmt="%.2f", comments="")
+        # Open a file dialog to choose the new filename and location
+        options = QFileDialog.Options()
+        new_filename, _ = QFileDialog.getSaveFileName(self, "Save File", "", "CSV Files (*.csv)", options=options)
         
+        if new_filename:
+            # Process the chosen file name
+            file_path, _ = os.path.split(new_filename)
+            
+            # Ensure that the directory for saving the file exists
+            os.makedirs(file_path, exist_ok=True)
+            
+            # Remove the ".hdf5" extension from the new filename
+            new_filename = os.path.splitext(new_filename)[0]
+            
+            # Concatenate the old filename with the new filename
+            combined_filename = os.path.join(file_path, base_filename + '_' + os.path.basename(new_filename))
+            
+            # Append "_clusCM_xy.csv" to the combined filename
+            combined_filename += '_clusCM_xy.csv'
+    
+            # Export array to CSV file (using 2 decimal places)
+            np.savetxt(combined_filename, clusCMxy, delimiter=",", fmt="%.2f", comments="", header="x,y")
         
         
         
@@ -656,7 +676,48 @@ class MPS_explorer(QtWidgets.QMainWindow):
         
         self.empty_layout(self.ui.scatterlayout_histcmdist)
         self.ui.scatterlayout_histcmdist.addWidget(scatterWidgetDBSCAN_cmdist) 
+    
+    
+            
+    
+    def savedistdata(self):
         
+        Nneighbor = int(self.Nneighbor)
+
+        dist = self.distances
+        
+        # filename = self.ui.lineEdit_filename.text()
+        # filename = os.path.splitext(filename)[0]
+        # dataNamecsv = utils.insertSuffix(filename, '_' + str(Nneighbor) + 'neighbor_distdata.csv')
+        
+        # #export dist array to CSV file (using 2 decimal places)
+        # np.savetxt(dataNamecsv, dist, delimiter=",", fmt="%.2f")
+        
+        # Get the filename from the UI
+        base_filename = self.ui.lineEdit_filename.text()
+        
+        # Open a file dialog to choose the new filename and location
+        options = QFileDialog.Options()
+        new_filename, _ = QFileDialog.getSaveFileName(self, "Save File", "", "CSV Files (*.csv)", options=options)
+        
+        if new_filename:
+            # Process the chosen file name
+            file_path, _ = os.path.split(new_filename)
+            
+            # Ensure that the directory for saving the file exists
+            os.makedirs(file_path, exist_ok=True)
+            
+            # Remove the ".hdf5" extension from the new filename
+            new_filename = os.path.splitext(new_filename)[0]
+            
+            # Concatenate the old filename with the new filename
+            combined_filename = os.path.join(file_path, base_filename + '_' + os.path.basename(new_filename))
+            
+            # Append "_clusCM_xy.csv" to the combined filename
+            combined_filename += str(Nneighbor) + '_neighbor_distdata.csv'
+    
+            # Export array to CSV file (using 2 decimal places)
+            np.savetxt(combined_filename, dist, delimiter=",", fmt="%.2f", comments="", header="dist")
                 
     def empty_layout(self, layout):
         for i in reversed(range(layout.count())): 
