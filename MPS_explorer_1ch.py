@@ -381,21 +381,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def savexyzROI(self, channel):
         
-        # Suggest a default filename
-        filename = self.ui.lineEdit_filename.text()
-        filename = os.path.splitext(filename)[0]
-        default_filename = utils.insertSuffix(filename, f'_xyzROICh{channel}.csv')
-        # Open a file dialog to choose the location and name of the file
-        file_dialog = QFileDialog()
-        filename, _ = file_dialog.getSaveFileName(caption="Save ROI Data", directory=".", filter="CSV Files (*.csv)", initialFilter=default_filename)
-    
         xyzROI = np.array([self.xroi, self.yroi, self.zroi])
         xyzROI = np.transpose(xyzROI)
-        filename = os.path.splitext(filename)[0]
-        dataNamecsv = f'{filename}_xyzROICh{channel}.csv'
         
-        # Export array to CSV file (using 2 decimal places)
-        np.savetxt(dataNamecsv, xyzROI, delimiter=",", fmt="%.2f", header="x, y, z", comments="")
+        # Get the filename from the UI
+        base_filename = self.ui.lineEdit_filename.text()
+        
+        # Open a file dialog to choose the new filename and location
+        options = QFileDialog.Options()
+        new_filename, _ = QFileDialog.getSaveFileName(self, "Save File", "", "CSV Files (*.csv)", options=options)
+        
+               
+        if new_filename:
+            # Process the chosen file name
+            file_path, _ = os.path.split(new_filename)
+             
+            # Remove the ".hdf5" extension from the new filename
+            new_filename = os.path.splitext(new_filename)[0]
+            
+            # Concatenate the old filename with the new filename
+            combined_filename = os.path.join(file_path, base_filename + '_' + os.path.basename(new_filename))
+            
+            # Append "_xyzROI.csv" to the combined filename
+            combined_filename += '_xyzROI.csv'
+    
+            # Export array to CSV file (using 2 decimal places)
+            np.savetxt(combined_filename, xyzROI, delimiter=",", fmt="%.2f", comments="", header="x,y,z")
+
         
 
      
@@ -578,6 +590,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         options = QFileDialog.Options()
         new_filename, _ = QFileDialog.getSaveFileName(self, "Save File", "", "CSV Files (*.csv)", options=options)
         
+               
         if new_filename:
             # Process the chosen file name
             file_path, _ = os.path.split(new_filename)
